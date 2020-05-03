@@ -2,14 +2,15 @@ package main
 
 /**
 设置红包
-curl "http://localhost:8080/set?uid=1&money=100&num=100"
+curl "http://localhost:8080/set?uid=1&money=100000&num=1000000"
 抢红包
-curl "http://localhost:8080/ge t?uid=1&id=743000365"
+curl "http://localhost:8080/get?uid=1&id=3071854753"
 并发压力测试
-wrk -t10 -c10 -d5 "http://localhost:8080/set?uid=1&money=100&num=100"
+wrk -t10 -c10 -d5 "http://localhost:8080/get?uid=1&id=3071854753"
 */
 //存在两个同步方面的问题
-//packageList的同步问题以及list的同步问题
+//任务消息队列改成多任务消息队列
+// todo 还可以优化packageList的个数
 import (
 	"fmt"
 	"github.com/kataras/iris"
@@ -25,7 +26,8 @@ type task struct {
 }
 //var packageList map[uint32][]uint = make(map[uint32][]uint)
 var packageList *sync.Map = new(sync.Map)
-var chTasks chan task = make(chan task)
+const taskNum = 16
+var chTaskList []chan task = make([]chan task,taskNum)
 type lotteryController struct {
 	Ctx iris.Context
 }
@@ -33,6 +35,10 @@ type lotteryController struct {
 func newApp() *iris.Application {
 	app := iris.New()
 	mvc.New(app.Party("/")).Handle(&lotteryController{})
+	for i:=0;i<taskNum;i++{
+		chTaskList[i] = make(chan task)
+		go fetchPackageListMoney(chTaskList[i])
+	}
 	return app
 }
 
@@ -45,13 +51,6 @@ func main() {
 //查看每个红包红包总量以及总金额数
 func (lc *lotteryController) Get() map[uint32][2]int {
 	rs := make(map[uint32][2]int)
-	//for id,list := range packageList{
-	//	var money int
-	//	for _,v := range list{
-	//		money += int(v)
-	//	}
-	//	rs[id] = [2]int{len(list),money}
-	//}
 	packageList.Range(func(key, value interface{}) bool {
 		id := key.(uint32)
 		list := value.([]uint)
@@ -135,33 +134,61 @@ func (lc *lotteryController) GetGet() string {
 	}
 	//list, ok := packageList[uint32(id)]
 	listOrigin,ok:=packageList.Load(uint32(id))
-	list := listOrigin.([]int)
-	if !ok || len(list) < 1 {
+	if !ok{
+		return fmt.Sprintf("红包不存在")
+	}
+	list := listOrigin.([]uint)
+	if len(list) < 1 {
 		return fmt.Sprintf("红包不存在,id=%d", id)
 	}
-	//线程不安全的实现方式
-	//分配随机数
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	i := r.Intn(len(list))
-	money := list[i]
-	//取出钱之后更新红包数组信息
-	if len(list) > 1 {
-		if i == len(list)-1 {
-			//packageList[uint32(id)] = list[:i]
-			packageList.Store(uint32(id),list[:i])
-		} else if i == 0 {
-			//packageList[uint32(id)] = list[1:]
-			packageList.Store(uint32(id),list[1:])
-		} else {
-			//packageList[uint32(id)] = append(list[:i], list[i+1:]...)
-			packageList.Store(uint32(id),append(list[:i], list[i+1:]...))
-		}
-	} else {
-		//delete(packageList, uint32(id))
-		packageList.Delete(uint32(id))
-	}
-
+	callback :=make(chan uint)
+	//发送任务
+	t := task{id :uint32(id),callback: callback}
+	//发送任务
+	chTask := chTaskList[id % taskNum]
+	chTask <- t
+	//接收返回结果
+	money := <- callback
+	if money <= 0{
+		return fmt.Sprintf("很遗憾，没有抢到红包")
+	}else {
 		return fmt.Sprintf("恭喜您抢到一个红包，金额为%d\n", money)
-
+	}
+}
+//处理抢红包任务
+func fetchPackageListMoney(chTask chan task){
+	for{
+		t:=<-chTask
+		id := t.id
+		l,ok :=packageList.Load(id)
+		if ok && l !=nil{
+			list := l.([]uint)
+			//分配随机数
+			r := rand.New(rand.NewSource(time.Now().UnixNano()))
+			i := r.Intn(len(list))
+			money := list[i]
+			//取出钱之后更新红包数组信息
+			if len(list) > 1 {
+				if i == len(list)-1 {
+					//packageList[uint32(id)] = list[:i]
+					packageList.Store(uint32(id),list[:i])
+				} else if i == 0 {
+					//packageList[uint32(id)] = list[1:]
+					packageList.Store(uint32(id),list[1:])
+				} else {
+					//packageList[uint32(id)] = append(list[:i], list[i+1:]...)
+					packageList.Store(uint32(id),append(list[:i], list[i+1:]...))
+				}
+			} else {
+				//delete(packageList, uint32(id))
+				packageList.Delete(uint32(id))
+			}
+			//抢到红包，返回金额
+			t.callback <- money
+		}else {
+			//没抢到红包，返回0
+			t.callback <- 0
+		}
+	}
 }
 
