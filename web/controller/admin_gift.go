@@ -9,6 +9,7 @@ import (
 	"hxyxx/lottery/services"
 	"hxyxx/lottery/web/utils"
 	"hxyxx/lottery/web/viewmodels"
+	"log"
 	"time"
 
 
@@ -104,6 +105,7 @@ func (c *AdminGiftController) PostSave() mvc.Result {
 			Text: fmt.Sprintf("ReadForm转换异常, err=%s", err),
 		}
 	}
+	log.Println("data.id:",data.Id)
 	giftInfo := models.LtGift{}
 	giftInfo.Id = data.Id
 	giftInfo.Title = data.Title

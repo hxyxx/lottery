@@ -17,7 +17,7 @@ type AdminResultController struct {
 	ServiceUserday services.UserdayService
 	ServiceBlackip services.BlackipService
 }
-
+//获取抽奖结果记录
 func (c *AdminResultController) Get() mvc.Result {
 	giftId := c.Ctx.URLParamIntDefault("gift_id", 0)
 	uid := c.Ctx.URLParamIntDefault("uid", 0)
@@ -79,7 +79,7 @@ func (c *AdminResultController) GetDelete() mvc.Result {
 		Path: refer,
 	}
 }
-
+//设置状态为作弊
 func (c *AdminResultController) GetCheat() mvc.Result {
 	id, err := c.Ctx.URLParamInt("id")
 	if err == nil {
@@ -93,7 +93,7 @@ func (c *AdminResultController) GetCheat() mvc.Result {
 		Path: refer,
 	}
 }
-
+//重置id状态为正常
 func (c *AdminResultController) GetReset() mvc.Result {
 	id, err := c.Ctx.URLParamInt("id")
 	if err == nil {
